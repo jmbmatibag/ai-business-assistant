@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: aiba_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aiba}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aiba_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-aiba}
+    # Host port 5434 avoids clashing with a locally-installed PostgreSQL on 5432.
+    ports:
+      - "5434:5432"
+    volumes:
+      - aiba_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aiba} -d ${POSTGRES_DB:-aiba}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  aiba_pgdata:

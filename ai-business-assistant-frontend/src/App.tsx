@@ -2,6 +2,8 @@ import { lazy } from "react"
 import { Route, Routes } from "react-router-dom"
 
 import { AppLayout } from "@/components/layout/AppLayout"
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute"
+import { Login } from "@/pages/Login"
 
 // Lazy-load pages so heavy, route-specific deps (e.g. Recharts on the dashboard)
 // are split out of the initial bundle and fetched on demand.
@@ -16,10 +18,16 @@ const Settings = lazy(() =>
 function App() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/assistant" element={<Chat />} />
-        <Route path="/settings" element={<Settings />} />
+      {/* Public */}
+      <Route path="/login" element={<Login />} />
+
+      {/* Authenticated app shell */}
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/assistant" element={<Chat />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
       </Route>
     </Routes>
   )

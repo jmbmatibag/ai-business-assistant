@@ -34,9 +34,9 @@ export function LoyverseUploadZone() {
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Loyverse Inventory Export</CardTitle>
+        <CardTitle>POS Inventory Export</CardTitle>
         <CardDescription>
-          Upload the inventory export CSV from Loyverse to refresh current stock levels.
+          Upload the inventory export CSV from POS to refresh current stock levels.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -101,7 +101,7 @@ export function LoyverseUploadZone() {
               </p>
               <p className="text-xs text-muted-foreground">
                 or <span className="font-medium text-primary">browse files</span> ·
-                Loyverse Inventory Export (.csv)
+                POS Inventory Export (.csv)
               </p>
             </div>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">

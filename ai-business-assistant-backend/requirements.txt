@@ -1,0 +1,24 @@
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Database / ORM / migrations
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+
+# Config
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+
+# Auth (Phase 2)
+# bcrypt pinned to 4.0.1: passlib 1.7.4 reads bcrypt.__about__.__version__,
+# which was removed in bcrypt 4.1+, so newer bcrypt breaks passlib's backend.
+passlib==1.7.4
+bcrypt==4.0.1
+pyjwt==2.10.1
+python-multipart==0.0.20
+
+# AI engine (Phase 4)
+anthropic==0.42.0

@@ -1,7 +1,9 @@
-import { NavLink } from "react-router-dom"
-import { Bot, LayoutDashboard, Settings, Sparkles } from "lucide-react"
+import { NavLink, useNavigate } from "react-router-dom"
+import { Bot, LayoutDashboard, LogOut, Settings, Sparkles } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { useAuthStore } from "@/store/useAuthStore"
 
 type NavItem = {
   to: string
@@ -16,6 +18,15 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 export function Sidebar() {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const logout = useAuthStore((s) => s.logout)
+
+  function handleLogout() {
+    logout()
+    navigate("/login", { replace: true })
+  }
+
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
       {/* Brand */}
@@ -52,8 +63,22 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-border px-5 py-4">
-        <p className="text-xs text-muted-foreground">v0.1 · Mock data</p>
+      <div className="border-t border-border px-3 py-3">
+        {user && (
+          <div className="mb-2 px-2">
+            <p className="truncate text-sm font-medium">{user.username}</p>
+            <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
+          </div>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-muted-foreground"
+          onClick={handleLogout}
+        >
+          <LogOut className="size-4" />
+          <span>Sign out</span>
+        </Button>
       </div>
     </aside>
   )
