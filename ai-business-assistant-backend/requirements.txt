@@ -22,3 +22,6 @@ python-multipart==0.0.20
 
 # AI engine (Phase 4)
 anthropic==0.42.0
+
+# Encryption for stored external data-source credentials (Fernet)
+cryptography==44.0.0

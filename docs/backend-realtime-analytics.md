@@ -8,6 +8,28 @@ This module extends the core backend and dashboard capabilities by leveraging ou
 * **Smart Prompt Pre-filling:** Clicking a notification action button redirects the user to the `/chat` route, populating the input field with a dynamically constructed natural language prompt instead of auto-sending it. This leaves the user in full control to modify it before sending.
 * **EOD Aggregation Pipelines:** Complex queries covering large date ranges (Quarterly/Annual) are computed via an End-of-Day database worker, saving the results to summary tables to avoid hitting live transaction tables during peak operation hours.
 
+## 2.1 Google Drive Data Sync Deprecation & Dynamic Data Routing
+The previously scoped Google Drive file monitoring and CSV synchronization layer is completely deprecated and removed from the system architecture. It is replaced by a direct, real-time connection to the live POS relational database. 
+
+To future-proof this application for multi-store scaling, different franchises, or entirely separate database migrations, the backend must not rely on a single hardcoded database connection. Instead, implement a dynamic connection string routing layer. The application must be capable of changing its external data target dynamically via the application settings UI.
+
+### Dynamic Database Configuration Schema
+To support pointing to external databases through the app, implement a `data_source_connections` table in the core application database:
+
+```sql
+CREATE TABLE data_source_connections (
+    id SERIAL PRIMARY KEY,
+    connection_name VARCHAR(100) NOT NULL, -- e.g., 'Cavite Branch Live POS'
+    db_dialect VARCHAR(20) DEFAULT 'postgresql', -- e.g., postgresql, mysql
+    db_host VARCHAR(255) NOT NULL,
+    db_port INTEGER DEFAULT 5432,
+    db_username VARCHAR(100) NOT NULL,
+    db_password_encrypted TEXT NOT NULL, -- Fernet encrypted string
+    db_name VARCHAR(100) NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 ---
 
 ## 3. Detailed Feature Specifications & Implementation Phases
@@ -24,7 +46,7 @@ Please execute these phases sequentially. Confirm with me once each step is full
     * Build a real-time Notification Toast and a dropdown panel in the navigation header using shadcn/ui components.
     * Each low-stock alert card must feature an action button labeled **"Suggest a Plan"**.
 4. **The Chat Redirection Bridge:**
-    * When "Suggest a Plan" is clicked, update the Zustand global chat store state (`chatInputText`), mark the notification as read, and programmatically navigate the user to the `/chat` view.
+    * When "Suggest a Plan" is clicked, stage the prompt in the Zustand global chat store (`setPendingPrompt(...)`), mark the notification as read, and programmatically navigate the user to the `/assistant` view.
     * The input field inside `ChatInput.tsx` must automatically inherit this text, focusing the cursor so the user can immediately review, edit, or submit the request.
 
 ### Phase 2: AI Replenishment Engine (Direct DB Hook)

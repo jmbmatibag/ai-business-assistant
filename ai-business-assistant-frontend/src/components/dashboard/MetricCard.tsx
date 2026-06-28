@@ -1,7 +1,9 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import type { DataOrigin } from "@/lib/types"
 import { Card, CardContent } from "@/components/ui/card"
+import { OriginBadges } from "@/components/OriginBadge"
 
 interface MetricCardProps {
   label: string
@@ -13,6 +15,8 @@ interface MetricCardProps {
   caption?: string
   /** Tint accent for the icon chip. */
   tone?: "default" | "warning" | "info"
+  /** Origins that contributed to this value; renders [DB]/[CSV] badges. */
+  origins?: DataOrigin[]
 }
 
 const toneStyles: Record<NonNullable<MetricCardProps["tone"]>, string> = {
@@ -28,6 +32,7 @@ export function MetricCard({
   deltaPct,
   caption,
   tone = "default",
+  origins,
 }: MetricCardProps) {
   const hasDelta = typeof deltaPct === "number"
   const isPositive = hasDelta && deltaPct! >= 0
@@ -35,11 +40,14 @@ export function MetricCard({
   return (
     <Card>
       <CardContent className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           <p className="text-sm font-medium text-muted-foreground">{label}</p>
-          <p className="text-2xl font-semibold tracking-tight tabular-nums">
-            {value}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-2xl font-semibold tracking-tight tabular-nums">
+              {value}
+            </p>
+            {origins && origins.length > 0 && <OriginBadges origins={origins} />}
+          </div>
           {hasDelta ? (
             <span
               className={cn(

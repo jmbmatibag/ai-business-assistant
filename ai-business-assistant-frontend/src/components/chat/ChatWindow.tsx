@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react"
 import { Bot } from "lucide-react"
 
-import { useChatStore } from "@/store/useChatStore"
+import { selectActiveMessages, useChatStore } from "@/store/useChatStore"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ChatMessage } from "@/components/chat/ChatMessage"
 
 export function ChatWindow() {
-  const messages = useChatStore((s) => s.messages)
+  const messages = useChatStore(selectActiveMessages)
   const isResponding = useChatStore((s) => s.isResponding)
   const scrollRootRef = useRef<HTMLDivElement>(null)
 

@@ -1,14 +1,23 @@
 """AI configuration routes (read / update the singleton settings row)."""
 
+import anthropic
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.crypto import encrypt_secret
 from app.db.session import get_db
 from app.models.ai_settings import DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, AISettings
 from app.models.user import User
-from app.schemas.ai_settings import ALLOWED_MODELS, AISettingsOut, AISettingsUpdate
+from app.schemas.ai_settings import (
+    ALLOWED_MODELS,
+    AISettingsOut,
+    AISettingsUpdate,
+    AnthropicTestRequest,
+    AnthropicTestResult,
+)
+from app.services.claude_agent import resolve_api_key
 
 router = APIRouter(prefix="/api/ai-settings", tags=["ai-settings"])
 
@@ -66,9 +75,73 @@ def update_settings(
             detail=f"Unsupported model. Choose one of: {', '.join(ALLOWED_MODELS)}",
         )
 
+    # The API key is write-only: a blank value clears it, any other value is
+    # Fernet-encrypted before storage. Omitting the field leaves it untouched.
+    if "anthropic_api_key" in data:
+        raw = (data.pop("anthropic_api_key") or "").strip()
+        settings.anthropic_api_key_encrypted = encrypt_secret(raw) if raw else None
+
     for field, value in data.items():
         setattr(settings, field, value)
 
     db.commit()
     db.refresh(settings)
     return settings
+
+
+@router.post("/test-anthropic", response_model=AnthropicTestResult)
+def test_anthropic_key(
+    payload: AnthropicTestRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> AnthropicTestResult:
+    """Validate an Anthropic API key with a minimal, low-token ping.
+
+    If the payload carries a key, that value is tested (lets the operator
+    verify a key they just typed before saving). Otherwise the key already
+    configured on the server — stored row, then ANTHROPIC_API_KEY env — is
+    tested via the same resolution the chat engine uses.
+    """
+    settings = get_or_create_settings(db)
+
+    api_key = (payload.anthropic_api_key or "").strip() or resolve_api_key(settings)
+    if not api_key:
+        return AnthropicTestResult(
+            success=False,
+            error="No API key to test — type one above or set ANTHROPIC_API_KEY.",
+        )
+
+    # Ping the model the chat actually uses, so the test also confirms the key
+    # has access to it. max_tokens=1 keeps the call minimal.
+    model = settings.current_model
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        client.messages.create(
+            model=model,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+    except anthropic.AuthenticationError:
+        return AnthropicTestResult(success=False, model=model, error="Unauthorized — invalid API key")
+    except anthropic.PermissionDeniedError:
+        return AnthropicTestResult(
+            success=False, model=model, error="Permission denied — key lacks access to this model"
+        )
+    except anthropic.RateLimitError:
+        return AnthropicTestResult(
+            success=False, model=model, error="Quota exceeded or rate limited"
+        )
+    except anthropic.NotFoundError:
+        return AnthropicTestResult(
+            success=False, model=model, error=f"Model not found: {model}"
+        )
+    except anthropic.APIConnectionError:
+        return AnthropicTestResult(
+            success=False, model=model, error="Network error reaching the Anthropic API"
+        )
+    except anthropic.APIStatusError as exc:
+        return AnthropicTestResult(
+            success=False, model=model, error=f"API error ({exc.status_code})"
+        )
+
+    return AnthropicTestResult(success=True, model=model)

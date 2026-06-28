@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ArrowUp } from "lucide-react"
 
 import { useChatStore } from "@/store/useChatStore"
@@ -11,6 +11,8 @@ export function ChatInput() {
   const [value, setValue] = useState("")
   const sendMessage = useChatStore((s) => s.sendMessage)
   const isResponding = useChatStore((s) => s.isResponding)
+  const pendingPrompt = useChatStore((s) => s.pendingPrompt)
+  const setPendingPrompt = useChatStore((s) => s.setPendingPrompt)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const resize = () => {
@@ -20,9 +22,30 @@ export function ChatInput() {
     el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`
   }
 
+  // Inherit a prompt staged by a deep link (the inventory bulk-action bar or a
+  // notification's "Suggest a Plan"). Mirror it into local textarea state, then
+  // immediately flush the global cache so it doesn't reappear if the user leaves
+  // and returns. The user stays in control: we pre-fill and focus, never auto-send.
+  useEffect(() => {
+    if (!pendingPrompt) return
+    setValue(pendingPrompt)
+    setPendingPrompt("")
+    // Defer DOM work a frame so the textarea has rendered the new value before
+    // we measure scrollHeight (auto-grow) and place the caret at the end.
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (el) {
+        resize()
+        el.focus()
+        const end = el.value.length
+        el.setSelectionRange(end, end)
+      }
+    })
+  }, [pendingPrompt, setPendingPrompt])
+
   const submit = () => {
     if (!value.trim() || isResponding) return
-    sendMessage(value)
+    void sendMessage(value)
     setValue("")
     // Reset the textarea height after clearing.
     requestAnimationFrame(() => {
@@ -46,7 +69,7 @@ export function ChatInput() {
             ref={textareaRef}
             value={value}
             rows={1}
-            placeholder="Ask about sales, low stock, or request a delivery plan…"
+            placeholder="Ask about sales, low stock, or request a replenishment plan…"
             onChange={(e) => {
               setValue(e.target.value)
               resize()
@@ -65,7 +88,7 @@ export function ChatInput() {
           </Button>
         </div>
         <p className="mt-1.5 px-1 text-center text-xs text-muted-foreground">
-          Mock assistant · responses are simulated for development.
+          Demo simulation — responses are generated locally from your active data source.
         </p>
       </div>
     </div>

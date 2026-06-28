@@ -25,7 +25,11 @@ export async function apiFetch<T>(
   const token = useAuthStore.getState().token
 
   const headers = new Headers(options.headers)
-  if (!headers.has("Content-Type") && options.body) {
+  // Let the browser set the multipart boundary for FormData; only default to
+  // JSON for plain string bodies.
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData
+  if (!headers.has("Content-Type") && options.body && !isFormData) {
     headers.set("Content-Type", "application/json")
   }
   if (token) {

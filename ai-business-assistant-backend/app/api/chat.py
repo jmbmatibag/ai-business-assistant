@@ -11,6 +11,7 @@ from app.models.conversation import ChatMessage, Conversation
 from app.models.user import User
 from app.schemas.chat import ChatMessageOut, ChatRequest, ChatResponse
 from app.services.claude_agent import ClaudeNotConfigured, run_chat
+from app.services.data_source import EphemeralDataMissing, resolve_read_engine
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -50,11 +51,20 @@ def post_message(
 
     ai_settings = get_or_create_settings(db)
 
+    # Route tool reads to the right engine for the active data source.
+    try:
+        eng = resolve_read_engine(payload.source, current_user.id)
+    except EphemeralDataMissing as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
     try:
         result = run_chat(
             ai_settings=ai_settings,
             history=history,
             user_message=payload.message,
+            eng=eng,
         )
     except ClaudeNotConfigured as exc:
         raise HTTPException(
@@ -79,6 +89,7 @@ def post_message(
         conversation_id=convo.id,
         reply=result["reply"],
         tools_used=result.get("tools_used", []),
+        widget=result.get("widget"),
     )
 
 

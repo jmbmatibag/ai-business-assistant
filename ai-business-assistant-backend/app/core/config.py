@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     # AI engine (used from Phase 4 onward)
     anthropic_api_key: str = ""
 
+    # Fernet key used to encrypt external data-source passwords at rest.
+    # Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Leave blank in dev to fall back to a deterministic key derived from jwt_secret_key.
+    fernet_key: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

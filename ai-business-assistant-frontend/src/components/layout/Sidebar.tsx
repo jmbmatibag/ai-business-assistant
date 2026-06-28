@@ -1,9 +1,16 @@
 import { NavLink, useNavigate } from "react-router-dom"
-import { Bot, LayoutDashboard, LogOut, Settings, Sparkles } from "lucide-react"
+import {
+  Bot,
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  Sparkles,
+} from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/store/useAuthStore"
+import { NotificationBell } from "@/components/notifications/NotificationBell"
 
 type NavItem = {
   to: string
@@ -29,7 +36,7 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
-      {/* Brand */}
+      {/* Brand + notifications */}
       <div className="flex items-center gap-2.5 px-5 py-5">
         <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
           <Sparkles className="size-5" />
@@ -37,6 +44,9 @@ export function Sidebar() {
         <div className="leading-tight">
           <p className="text-sm font-semibold tracking-tight">Business AI</p>
           <p className="text-xs text-muted-foreground">Inventory Assistant</p>
+        </div>
+        <div className="ml-auto">
+          <NotificationBell />
         </div>
       </div>
 

@@ -6,10 +6,18 @@ import json
 from typing import Any
 
 import anthropic
+from sqlalchemy.engine import Engine
 
 from app.core.config import settings as app_settings
+from app.core.crypto import DecryptionError, decrypt_secret
 from app.models.ai_settings import AISettings
-from app.services.tools import SCHEMA_DESCRIPTION, TOOL_DEFINITIONS, ToolError, dispatch_tool
+from app.services.tools import (
+    REPLENISHMENT_TOOL,
+    SCHEMA_DESCRIPTION,
+    TOOL_DEFINITIONS,
+    ToolError,
+    dispatch_tool,
+)
 
 # Safety net so a misbehaving model can't loop forever on tool calls.
 MAX_TOOL_ITERATIONS = 6
@@ -18,6 +26,19 @@ MAX_TOKENS = 2048
 
 class ClaudeNotConfigured(Exception):
     """Raised when no Anthropic API key is configured."""
+
+
+def resolve_api_key(ai_settings: AISettings) -> str:
+    """The Anthropic API key to use: the operator-supplied key (decrypted) if
+    set, otherwise the ANTHROPIC_API_KEY environment variable."""
+    encrypted = getattr(ai_settings, "anthropic_api_key_encrypted", None)
+    if encrypted:
+        try:
+            return decrypt_secret(encrypted)
+        except DecryptionError:
+            # Stored key undecryptable (rotated FERNET_KEY) — fall back to env.
+            pass
+    return app_settings.anthropic_api_key
 
 
 def build_system_prompt(ai_settings: AISettings) -> str:
@@ -36,6 +57,12 @@ run_readonly_sql for anything else. Never claim a number you did not obtain
 from a tool. When asked about cancellations or anomalies, use
 scan_cancellation_anomalies with the configured threshold.
 
+When the operator asks for a replenishment, delivery, or restock plan, call
+calculate_replenishment_matrix with the store and the number of days to cover.
+The plan is rendered for the operator as an interactive widget, so keep your
+text reply brief — introduce the plan in one or two sentences rather than
+re-listing every quantity.
+
 {SCHEMA_DESCRIPTION}"""
 
 
@@ -45,23 +72,50 @@ def _content_to_text(content: list[Any]) -> str:
     return "\n".join(p for p in parts if p).strip()
 
 
+def _matrix_to_widget(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Turn a replenishment-matrix tool result into a delivery-plan widget."""
+    items = result.get("items") or []
+    if not items:
+        return None
+    store = result.get("store_name") or f"Store {result.get('store_id')}"
+    target_days = result.get("target_days")
+    return {
+        "kind": "delivery_plan",
+        "title": f"Replenishment Plan — {store} ({target_days}-day cover)",
+        "items": [
+            {
+                "id": str(item.get("sku") or idx),
+                "store": store,
+                "product": item.get("item_name") or item.get("sku") or "Item",
+                "quantity": int(item.get("required_quantity") or 0),
+            }
+            for idx, item in enumerate(items)
+        ],
+    }
+
+
 def run_chat(
     *,
     ai_settings: AISettings,
     history: list[dict[str, str]],
     user_message: str,
+    eng: Engine | None = None,
 ) -> dict[str, Any]:
     """Run one assistant turn (with tool use) and return the reply text plus a
     trace of which tools were called.
 
     `history` is a list of {"role": "user"|"assistant", "content": str}.
+    When `eng` is provided, all tool reads run against it (Local CSV mode);
+    otherwise tools follow the active live POS data source.
     """
-    if not app_settings.anthropic_api_key:
+    api_key = resolve_api_key(ai_settings)
+    if not api_key:
         raise ClaudeNotConfigured(
-            "ANTHROPIC_API_KEY is not set; add it to the backend .env to enable chat."
+            "No Anthropic API key configured. Add one in Settings → AI "
+            "Configuration, or set ANTHROPIC_API_KEY in the backend .env."
         )
 
-    client = anthropic.Anthropic(api_key=app_settings.anthropic_api_key)
+    client = anthropic.Anthropic(api_key=api_key)
     system_prompt = build_system_prompt(ai_settings)
 
     messages: list[dict[str, Any]] = [
@@ -70,6 +124,7 @@ def run_chat(
     messages.append({"role": "user", "content": user_message})
 
     tool_trace: list[dict[str, Any]] = []
+    widget: dict[str, Any] | None = None
 
     for _ in range(MAX_TOOL_ITERATIONS):
         response = client.messages.create(
@@ -81,7 +136,11 @@ def run_chat(
         )
 
         if response.stop_reason != "tool_use":
-            return {"reply": _content_to_text(response.content), "tools_used": tool_trace}
+            return {
+                "reply": _content_to_text(response.content),
+                "tools_used": tool_trace,
+                "widget": widget,
+            }
 
         # Echo the assistant's tool-use turn back, then answer each tool call.
         messages.append({"role": "assistant", "content": response.content})
@@ -90,8 +149,14 @@ def run_chat(
             if getattr(block, "type", None) != "tool_use":
                 continue
             try:
-                result = dispatch_tool(block.name, dict(block.input), settings=ai_settings)
+                result = dispatch_tool(
+                    block.name, dict(block.input), settings=ai_settings, eng=eng
+                )
                 is_error = False
+                if block.name == REPLENISHMENT_TOOL:
+                    built = _matrix_to_widget(result)
+                    if built is not None:
+                        widget = built
             except ToolError as exc:
                 result = {"error": str(exc)}
                 is_error = True
@@ -116,5 +181,6 @@ def run_chat(
     return {
         "reply": _content_to_text(final.content),
         "tools_used": tool_trace,
+        "widget": widget,
         "note": "Tool iteration budget reached.",
     }

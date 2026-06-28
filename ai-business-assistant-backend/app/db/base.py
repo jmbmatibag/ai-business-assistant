@@ -20,4 +20,9 @@ from app.models import (  # noqa: E402,F401
     sales_item,
     ai_settings,
     conversation,
+    inventory,
+    notification,
+    daily_sales_summary,
+    data_source,
+    ml_analytics,
 )

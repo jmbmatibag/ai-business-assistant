@@ -20,6 +20,9 @@ class AISettingsOut(BaseModel):
     base_system_prompt: str
     default_safety_stock: int
     anomaly_threshold: int
+    # Whether an operator-supplied Anthropic API key is stored. The key itself
+    # is write-only and never returned.
+    anthropic_api_key_set: bool = False
 
 
 class AISettingsUpdate(BaseModel):
@@ -29,3 +32,24 @@ class AISettingsUpdate(BaseModel):
     base_system_prompt: str | None = None
     default_safety_stock: int | None = Field(default=None, ge=0, le=100)
     anomaly_threshold: int | None = Field(default=None, ge=0)
+    # Send a new key to set/replace it, or an empty string to clear it. Omit to
+    # leave the stored key unchanged.
+    anthropic_api_key: str | None = Field(default=None, max_length=256)
+
+
+class AnthropicTestRequest(BaseModel):
+    """Test-connection payload. Send a key to validate the value the operator
+    just typed; omit it to validate the key already saved on the server."""
+
+    anthropic_api_key: str | None = Field(default=None, max_length=256)
+
+
+class AnthropicTestResult(BaseModel):
+    """Outcome of a test-and-validate ping against the Anthropic API."""
+
+    success: bool
+    # The model the ping was sent against (echoed for UI context).
+    model: str | None = None
+    # Short, human-readable failure reason when success is False (e.g.
+    # "Unauthorized", "Quota exceeded"). None on success.
+    error: str | None = None

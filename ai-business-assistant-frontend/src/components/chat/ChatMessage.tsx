@@ -3,7 +3,7 @@ import { Bot, User } from "lucide-react"
 import type { ChatMessage as ChatMessageType } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { DeliveryPlanWidget } from "@/components/chat/DeliveryPlanWidget"
+import { DeliveryPlanWidget, PlanReasoningWidget } from "@/components/chat/DeliveryPlanWidget"
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -53,6 +53,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
         {/* Generative UI: render a custom component for structured payloads. */}
         {message.widget?.kind === "delivery_plan" && (
           <DeliveryPlanWidget messageId={message.id} plan={message.widget} />
+        )}
+        {message.widget?.kind === "plan_reasoning" && (
+          <PlanReasoningWidget payload={message.widget} />
         )}
       </div>
     </div>

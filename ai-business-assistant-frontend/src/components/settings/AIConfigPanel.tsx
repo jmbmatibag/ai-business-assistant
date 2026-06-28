@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Bot, Check, Loader2 } from "lucide-react"
+import { Bot, Check, CheckCircle2, KeyRound, Loader2, XCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { apiFetch, type ApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 interface AISettings {
   id: number
@@ -19,6 +20,8 @@ interface AISettings {
   base_system_prompt: string
   default_safety_stock: number
   anomaly_threshold: number
+  /** Whether an operator-supplied Anthropic API key is stored on the server. */
+  anthropic_api_key_set: boolean
 }
 
 interface ModelOption {
@@ -26,7 +29,14 @@ interface ModelOption {
   label: string
 }
 
+interface AnthropicTestResult {
+  success: boolean
+  model: string | null
+  error: string | null
+}
+
 type SaveState = "idle" | "saving" | "saved" | "error"
+type TestState = "idle" | "testing"
 
 export function AIConfigPanel() {
   const [settings, setSettings] = useState<AISettings | null>(null)
@@ -35,6 +45,10 @@ export function AIConfigPanel() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>("idle")
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Write-only: the stored key is never sent back, so this stays local until saved.
+  const [apiKeyInput, setApiKeyInput] = useState("")
+  const [testState, setTestState] = useState<TestState>("idle")
+  const [testResult, setTestResult] = useState<AnthropicTestResult | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -72,20 +86,67 @@ export function AIConfigPanel() {
     setSaveState("saving")
     setSaveError(null)
     try {
+      const body: Record<string, unknown> = {
+        current_model: settings.current_model,
+        base_system_prompt: settings.base_system_prompt,
+        default_safety_stock: settings.default_safety_stock,
+        anomaly_threshold: settings.anomaly_threshold,
+      }
+      // Only send the key when the operator actually typed one (it's write-only).
+      if (apiKeyInput.trim()) body.anthropic_api_key = apiKeyInput.trim()
+
       const updated = await apiFetch<AISettings>("/ai-settings", {
         method: "PUT",
-        body: JSON.stringify({
-          current_model: settings.current_model,
-          base_system_prompt: settings.base_system_prompt,
-          default_safety_stock: settings.default_safety_stock,
-          anomaly_threshold: settings.anomaly_threshold,
-        }),
+        body: JSON.stringify(body),
       })
       setSettings(updated)
+      setApiKeyInput("")
       setSaveState("saved")
     } catch (err) {
       setSaveState("error")
       setSaveError((err as ApiError).detail || "Failed to save settings")
+    }
+  }
+
+  async function handleClearKey() {
+    setSaveState("saving")
+    setSaveError(null)
+    try {
+      const updated = await apiFetch<AISettings>("/ai-settings", {
+        method: "PUT",
+        body: JSON.stringify({ anthropic_api_key: "" }),
+      })
+      setSettings(updated)
+      setApiKeyInput("")
+      setSaveState("saved")
+    } catch (err) {
+      setSaveState("error")
+      setSaveError((err as ApiError).detail || "Failed to clear key")
+    }
+  }
+
+  async function handleTest() {
+    setTestState("testing")
+    setTestResult(null)
+    try {
+      // Test the typed key if present; otherwise validate the saved/env key.
+      const typed = apiKeyInput.trim()
+      const result = await apiFetch<AnthropicTestResult>(
+        "/ai-settings/test-anthropic",
+        {
+          method: "POST",
+          body: JSON.stringify(typed ? { anthropic_api_key: typed } : {}),
+        }
+      )
+      setTestResult(result)
+    } catch (err) {
+      setTestResult({
+        success: false,
+        model: null,
+        error: (err as ApiError).detail || "Couldn't reach the server to test the key.",
+      })
+    } finally {
+      setTestState("idle")
     }
   }
 
@@ -154,6 +215,99 @@ export function AIConfigPanel() {
             </select>
             <p className="text-xs text-muted-foreground">
               Which Claude model powers the assistant's responses.
+            </p>
+          </div>
+
+          {/* Anthropic API key */}
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <label htmlFor="apiKey" className="flex items-center gap-1.5 text-sm font-medium">
+              <KeyRound className="size-3.5" />
+              Anthropic API key
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="apiKey"
+                type="password"
+                autoComplete="off"
+                value={apiKeyInput}
+                onChange={(e) => {
+                  setApiKeyInput(e.target.value)
+                  setSaveState("idle")
+                  setTestResult(null)
+                }}
+                placeholder={
+                  settings.anthropic_api_key_set
+                    ? "•••••••••••• (a key is saved — type to replace)"
+                    : "sk-ant-…"
+                }
+                className="flex-1 font-mono text-xs"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTest}
+                // Need something to test: either a typed key or a saved/env one.
+                disabled={
+                  testState === "testing" ||
+                  (!apiKeyInput.trim() && !settings.anthropic_api_key_set)
+                }
+              >
+                {testState === "testing" ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Testing…
+                  </>
+                ) : (
+                  "Test connection"
+                )}
+              </Button>
+              {settings.anthropic_api_key_set && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={handleClearKey}
+                  disabled={saveState === "saving"}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+
+            {/* Validation result badge */}
+            {testResult && (
+              <span
+                role="status"
+                className={cn(
+                  "inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                  testResult.success
+                    ? "bg-success/10 text-success"
+                    : "bg-destructive/10 text-destructive"
+                )}
+              >
+                {testResult.success ? (
+                  <>
+                    <CheckCircle2 className="size-3.5" />
+                    API Key Valid &amp; Active
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="size-3.5" />
+                    {testResult.error || "Validation failed"}
+                  </>
+                )}
+              </span>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {settings.anthropic_api_key_set ? (
+                <span className="text-success">A key is saved.</span>
+              ) : (
+                "No key saved — the assistant falls back to the server's ANTHROPIC_API_KEY."
+              )}{" "}
+              Stored encrypted; never displayed after saving. Get one at{" "}
+              <span className="font-mono">console.anthropic.com</span>.
             </p>
           </div>
 

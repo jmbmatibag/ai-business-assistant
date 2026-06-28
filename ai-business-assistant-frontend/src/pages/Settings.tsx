@@ -2,7 +2,8 @@ import { Bot, Database } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LoyverseUploadZone } from "@/components/settings/LoyverseUploadZone"
-import { GoogleDriveSyncStatus } from "@/components/settings/GoogleDriveSyncStatus"
+import { DataSourceManager } from "@/components/settings/DataSourceManager"
+import { SourceToggles } from "@/components/settings/SourceToggles"
 import { AIConfigPanel } from "@/components/settings/AIConfigPanel"
 
 export function Settings() {
@@ -15,7 +16,7 @@ export function Settings() {
         </p>
       </header>
 
-      <div className="p-6">
+      <div className="mx-auto w-full max-w-5xl p-6">
         <Tabs defaultValue="data-sync">
           <TabsList>
             <TabsTrigger value="data-sync">
@@ -32,16 +33,21 @@ export function Settings() {
           <TabsContent value="data-sync" className="mt-2">
             <section className="flex flex-col gap-4">
               <div>
-                <h2 className="text-base font-semibold tracking-tight">Data Sync</h2>
+                <h2 className="text-base font-semibold tracking-tight">Data Sources</h2>
                 <p className="text-sm text-muted-foreground">
-                  Connect your inventory and historical sales sources.
+                  Connect to your live POS database and/or upload CSV exports.
+                  Activate either or both sources with the switches below — when
+                  both are on, the dashboard blends them and tags every value by
+                  origin.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <SourceToggles />
                 <LoyverseUploadZone />
-                <GoogleDriveSyncStatus />
               </div>
+
+              <DataSourceManager />
             </section>
           </TabsContent>
 
@@ -57,9 +63,7 @@ export function Settings() {
                 </p>
               </div>
 
-              <div className="max-w-5xl">
-                <AIConfigPanel />
-              </div>
+              <AIConfigPanel />
             </section>
           </TabsContent>
         </Tabs>

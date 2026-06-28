@@ -17,6 +17,9 @@ from sqlalchemy.engine import Engine
 
 from app.db.session import engine
 from app.models.ai_settings import AISettings
+from app.services import inventory as inventory_service
+from app.services.data_source import get_pos_engine
+from app.services.sql_compat import _set_read_only
 
 # Schema summary handed to Claude so it can write correct queries.
 SCHEMA_DESCRIPTION = """\
@@ -83,7 +86,7 @@ def run_readonly_sql(args: dict[str, Any], *, eng: Engine = engine) -> dict[str,
     with eng.connect() as conn:
         trans = conn.begin()
         try:
-            conn.execute(text("SET TRANSACTION READ ONLY"))
+            _set_read_only(conn)
             result = conn.execute(text(capped))
             rows = [
                 {k: _json_safe(v) for k, v in row.items()}
@@ -133,7 +136,7 @@ def get_sales_summary(args: dict[str, Any], *, eng: Engine = engine) -> dict[str
     with eng.connect() as conn:
         trans = conn.begin()
         try:
-            conn.execute(text("SET TRANSACTION READ ONLY"))
+            _set_read_only(conn)
             row = conn.execute(text(sql), params).mappings().one()
         finally:
             trans.rollback()
@@ -188,7 +191,7 @@ def scan_cancellation_anomalies(
     with eng.connect() as conn:
         trans = conn.begin()
         try:
-            conn.execute(text("SET TRANSACTION READ ONLY"))
+            _set_read_only(conn)
             rows = [
                 {k: _json_safe(v) for k, v in row.items()}
                 for row in conn.execute(text(sql), params).mappings().all()
@@ -201,6 +204,34 @@ def scan_cancellation_anomalies(
         "anomaly_count": len(rows),
         "anomalies": rows,
     }
+
+
+def calculate_replenishment_matrix(
+    args: dict[str, Any],
+    *,
+    eng: Engine,
+    settings: AISettings | None = None,
+) -> dict[str, Any]:
+    """Compute a replenishment plan for a store: required quantities per item to
+    cover ``target_days`` of demand, plus the configured safety stock buffer."""
+    target_days = int(args.get("target_days") or 3)
+    safety_pct = settings.default_safety_stock if settings is not None else 0
+
+    store_id = args.get("store_id")
+    store_name = args.get("store_name")
+    if store_id is None and store_name:
+        store_id = inventory_service.resolve_store_id(eng, str(store_name))
+    if store_id is None:
+        raise ToolError(
+            "Provide a valid store_id (integer) or store_name to compute a plan."
+        )
+
+    return inventory_service.calculate_replenishment_matrix(
+        store_id=int(store_id),
+        target_days=target_days,
+        eng=eng,
+        safety_stock_pct=safety_pct,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +295,40 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "calculate_replenishment_matrix",
+        "description": (
+            "Compute a data-driven replenishment plan for a single store. For "
+            "each SKU it multiplies recent daily sales velocity by the target "
+            "number of days of cover (plus the configured safety-stock buffer) "
+            "and subtracts current on-hand stock to get the quantity to deliver. "
+            "Returns only items that need restocking. Use this whenever the user "
+            "asks for a replenishment, delivery, or restock plan. Pass either "
+            "store_id (integer) or store_name."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "store_id": {
+                    "type": "integer",
+                    "description": "The store's numeric id.",
+                },
+                "store_name": {
+                    "type": "string",
+                    "description": "Store name, e.g. 'COTERIE 1' (used if store_id omitted).",
+                },
+                "target_days": {
+                    "type": "integer",
+                    "description": "Days of demand the plan should cover (e.g. 3).",
+                },
+            },
+            "required": ["target_days"],
+        },
+    },
 ]
+
+# Tool names whose JSON output the chat layer renders as a delivery-plan widget.
+REPLENISHMENT_TOOL = "calculate_replenishment_matrix"
 
 
 def dispatch_tool(
@@ -272,12 +336,22 @@ def dispatch_tool(
     args: dict[str, Any],
     *,
     settings: AISettings | None = None,
+    eng: Engine | None = None,
 ) -> dict[str, Any]:
-    """Execute a tool by name. Raises ToolError on unknown tool / bad input."""
+    """Execute a tool by name. Raises ToolError on unknown tool / bad input.
+
+    When ``eng`` is provided (e.g. the ephemeral SQLite engine in Local CSV
+    mode) all reads run against it. Otherwise reads resolve through the dynamic
+    data-source router, so tools follow whichever external database is active.
+    """
+    if eng is None:
+        eng = get_pos_engine()
     if name == "run_readonly_sql":
-        return run_readonly_sql(args)
+        return run_readonly_sql(args, eng=eng)
     if name == "get_sales_summary":
-        return get_sales_summary(args)
+        return get_sales_summary(args, eng=eng)
     if name == "scan_cancellation_anomalies":
-        return scan_cancellation_anomalies(args, settings=settings)
+        return scan_cancellation_anomalies(args, eng=eng, settings=settings)
+    if name == "calculate_replenishment_matrix":
+        return calculate_replenishment_matrix(args, eng=eng, settings=settings)
     raise ToolError(f"Unknown tool: {name}")
